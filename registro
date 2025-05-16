@@ -1,0 +1,210 @@
+import React, { useState } from 'react';
+import {
+    Box,
+    Paper,
+    Typography,
+    TextField,
+    Button
+} from '@mui/material';
+import { DataGrid, GridToolbar } from '@mui/x-data-grid';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
+import axios from '@/services/axios';
+import BackdropLoading from '@/components/BackdropLoading';
+import Error from '@/components/Error';
+import toast from 'react-hot-toast';
+
+export default function PessoasCadastradas() {
+    const queryClient = useQueryClient();
+    const [selectedDate, setSelectedDate] = useState('');
+
+    // consulta todas as visitas
+    const { isLoading, error, data } = useQuery('visitas', () =>
+        axios.get('/visitantes/consultas_todas_visitas').then(res => res.data)
+    );
+
+    // mutation para atualizar status_agendamento
+    const updateVisitas = useMutation(
+        visita => axios.put(`/visitantes/visitas-cadastradas/${visita.uuid}`, visita),
+        {
+            onSuccess: () => {
+                toast.success('Status atualizado');
+                queryClient.invalidateQueries('visitas');
+            },
+            onError: () => {
+                toast.error('Erro ao atualizar');
+            }
+        }
+    );
+
+    // formata para "YYYY-MM-DD HH:MM:SS"
+    const formatDateLocal = date => {
+        const d = new Date(date);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+
+    // avança status: Pendente → Chegou → Concluído
+    const handleStatusClick = row => {
+        const next =
+            row.status_agendamento === 'Pendente' ? 'Chegou'
+                : row.status_agendamento === 'Chegou' ? 'Concluído'
+                    : row.status_agendamento;
+        if (next === row.status_agendamento) return;
+        updateVisitas.mutate({
+            ...row,
+            data_visita: formatDateLocal(row.data_visita),
+            status_agendamento: next
+        });
+    };
+
+    if (isLoading) return <BackdropLoading />;
+    if (error) return <Error error={error} />;
+
+    // todos os registros, clonando antes de ordenar
+    const allRows = (data || []).slice().sort((a, b) =>
+        new Date(a.data_visita) - new Date(b.data_visita)
+    );
+
+    // aplica filtro de data se houver
+    const rows = selectedDate
+        ? allRows.filter(r => new Date(r.data_visita).toISOString().slice(0, 10) === selectedDate)
+        : allRows;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const rowsByProximity = rows
+        .slice()
+        .sort((a, b) => {
+            const da = Math.abs(new Date(a.data_visita) - today);
+            const db = Math.abs(new Date(b.data_visita) - today);
+            return da - db;
+        });
+
+    const columns = [
+        {
+            field: 'status_agendamento',
+            headerName: 'Situação',
+            width: 140,
+            sortable: false,
+            filterable: false,
+            align: 'center',
+            headerAlign: 'center',
+            renderCell: ({ row }) => {
+                let bg, hoverBg;
+                switch (row.status_agendamento) {
+                    case 'Pendente':
+                        bg = '#ffc107'; hoverBg = '#e0a800'; break;
+                    case 'Chegou':
+                        bg = '#000080'; hoverBg = '#000066'; break;
+                    default: // Concluído
+                        bg = '#28a745'; hoverBg = '#218838';
+                }
+                return (
+                    <Button
+                        variant="contained"
+                        size="small"
+                        onClick={() => handleStatusClick(row)}
+                        disabled={row.status_agendamento === 'Concluído'}
+                        sx={{
+                            width: 90,
+                            height: 35,
+                            fontSize: 15,
+                            textTransform: 'none',
+                            borderRadius: '13px',
+                            backgroundColor: bg,
+                            '&:hover': { backgroundColor: hoverBg },
+                            '&.Mui-disabled': {
+                                backgroundColor: bg,
+                                color: '#fff',
+                                opacity: 1,
+                            }
+                        }}
+                    >
+                        {row.status_agendamento}
+                    </Button>
+                );
+            }
+        },
+        { field: 'nome_completo', headerName: 'Visitante', width: 200, align: 'center', headerAlign: 'center' },
+        { field: 'documento', headerName: 'Documento', width: 180, align: 'center', headerAlign: 'center' },
+        {
+            field: 'data_visita',
+            headerName: 'Data Visita',
+            width: 180,
+            align: 'center',
+            headerAlign: 'center',
+            renderCell: ({ value }) => {
+                const dt = new Date(value);
+                return isNaN(dt)
+                    ? ''
+                    : dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR');
+            }
+        },
+        { field: 'solicitante', headerName: 'Solicitante', width: 140, align: 'center', headerAlign: 'center' },
+        { field: 'motivo', headerName: 'Motivo', width: 120, align: 'center', headerAlign: 'center' },
+        { field: 'empresa', headerName: 'Empresa', width: 120, align: 'center', headerAlign: 'center' },
+        {
+            field: 'notebook',
+            headerName: 'Notebook',
+            width: 120,
+            align: 'center',
+            headerAlign: 'center',
+            renderCell: ({ value }) => (value ? 'Sim' : 'Não')
+        },
+        {
+            field: 'epi',
+            headerName: 'EPI',
+            width: 100,
+            align: 'center',
+            headerAlign: 'center',
+            renderCell: ({ value }) => (value ? 'Sim' : 'Não')
+        },
+        {
+            field: 'foto',
+            headerName: 'Foto',
+            width: 100,
+            align: 'center',
+            headerAlign: 'center',
+            renderCell: ({ value }) => (value ? 'Sim' : 'Não')
+        },
+        { field: 'observacoes', headerName: 'Observações', width: 200, align: 'center', headerAlign: 'center' }
+    ];
+
+    return (
+        <Box sx={{ width: '100%' }}>
+            <Typography variant="h4" mb={2}>
+                Registros
+            </Typography>
+
+            {/* filtro por data */}
+            <Paper elevation={2} sx={{ mb: 2, p: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+                <TextField
+                    label="Filtrar por data"
+                    type="date"
+                    size="small"
+                    sx={{width:270}}
+                    InputLabelProps={{ shrink: true }}
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                />
+                <Button variant="outlined" sx={{width: 100, height: 33}} onClick={() => setSelectedDate('')}>
+                    Limpar Data
+                </Button>
+            </Paper>
+
+            <Paper elevation={3} sx={{ height: 700, borderRadius: 2, overflow: 'hidden' }}>
+                <DataGrid
+                    rows={rowsByProximity}
+                    columns={columns}
+                    getRowId={r => r.uuid}
+                    initialState={{ pagination: { paginationModel: { pageSize: 13 } } }}
+                    pageSizeOptions={[5, 13]}
+                    disableRowSelectionOnClick
+                    slots={{ toolbar: GridToolbar }}
+                    slotProps={{ toolbar: { showQuickFilter: true, quickFilterProps: { debounceMs: 300 } } }}
+                />
+            </Paper>
+        </Box>
+    );
+}
